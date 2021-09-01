@@ -4,7 +4,7 @@ from collections import Counter
 from difflib import SequenceMatcher
 from typing import List, Tuple
 import regex as re
-from utils.attribute import xngrams
+from utils.helpers import xngrams
 from loguru import logger
 
 
@@ -68,13 +68,13 @@ class WordTransform:
         return self.before_str == o.before_str and self.after_str == o.after_str
 
     def __hash__(self) -> int:
-        return hash(f"WordTransform('{self.before_str}', '{self.after_str}')")
+        return hash(f"Rule('{self.before_str}', '{self.after_str}')")
 
     def validate(self, str_value):
         return self.before_str in str_value
 
     def __repr__(self) -> str:
-        return f"Rule('{self.before_str}', '{self.after_str}')"
+        return f"WordTransform('{self.before_str}', '{self.after_str}')"
 
 
 class CharNoisyChannel:
@@ -104,14 +104,14 @@ class CharNoisyChannel:
             return 0
 
     # Algorithm 1: Transformation Learning
-    def learn_transformation(self, error_str, cleaned_str):
+    def learn_transformation(self, cleaned_str, error_str):
         if not cleaned_str and not error_str:
             return []
 
         # valid_trans == Φ
         valid_trans = [CharTransform(cleaned_str, error_str)]
 
-        l = self.longest_common_substring(cleaned_str, error_str)
+        l = self.longest_common_substring(cleaned_str, error_str) # Output: first_match, second_match, length
 
         if l is None:
             return valid_trans
@@ -124,22 +124,22 @@ class CharNoisyChannel:
                 valid_trans.append(CharTransform(lcv, lev))
             if rcv or rev:
                 valid_trans.append(CharTransform(rcv, rev))
-            valid_trans.extend(self.learn_transformation(lev, lcv))
-            valid_trans.extend(self.learn_transformation(rev, rcv))
+            valid_trans.extend(self.learn_transformation(lcv, lev))
+            valid_trans.extend(self.learn_transformation(rcv, rev))
         elif self.similarity(lcv, lev) + self.similarity(rcv, rev) < self.similarity(lcv, rev) + self.similarity(rcv, lev):
             if lcv or rev:
                 valid_trans.append(CharTransform(lcv, rev))
             if rcv or lev:
                 valid_trans.append(CharTransform(rcv, lev))
-            valid_trans.extend(self.learn_transformation(rev, lcv))
-            valid_trans.extend(self.learn_transformation(lev, rcv))
+            valid_trans.extend(self.learn_transformation(rcv, lev))
+            valid_trans.extend(self.learn_transformation(lcv, rev))
         return list(set(valid_trans))
 
     # Algorithm 2: Empirical Transformation Distribution
     def fit(self, string_pairs):
         transforms = []
-        for error_str, cleaned_str in string_pairs:
-            transforms.extend(self.learn_transformation(error_str, cleaned_str))
+        for cleaned_str, error_str in string_pairs:
+            transforms.extend(self.learn_transformation(cleaned_str, error_str))
         logger.debug("Transform rules: " + str(transforms))
         counter = Counter(transforms)
         sum_counter = sum(counter.values())
@@ -163,16 +163,16 @@ class CharNoisyChannel:
 
 
 class WordNoisyChannel(CharNoisyChannel):
-    def learn_transformation(self, error_str, cleaned_str):
+    def learn_transformation(self, cleaned_str, error_str):
         if not cleaned_str and not error_str:
             return []
 
         error_tokens = wskeep_tokenize(error_str)
         cleaned_tokens = wskeep_tokenize(cleaned_str)
 
-        return self.learn_transformation_tokens(error_tokens, cleaned_tokens)
+        return self.learn_transformation_tokens(cleaned_tokens, error_tokens)
 
-    def learn_transformation_tokens(self, error_tokens, cleaned_tokens):
+    def learn_transformation_tokens(self, cleaned_tokens, error_tokens):
         if not error_tokens and not cleaned_tokens:
             return []
 
@@ -191,15 +191,15 @@ class WordNoisyChannel(CharNoisyChannel):
                 valid_trans.append(WordTransform("".join(lcv), "".join(lev)))
             if rcv or rev:
                 valid_trans.append(WordTransform("".join(rcv), "".join(rev)))
-            valid_trans.extend(self.learn_transformation_tokens(lev, lcv))
-            valid_trans.extend(self.learn_transformation_tokens(rev, rcv))
+            valid_trans.extend(self.learn_transformation_tokens(lcv, lev))
+            valid_trans.extend(self.learn_transformation_tokens(rcv, rev))
         elif self.similarity(lcv, lev) + self.similarity(rcv, rev) < self.similarity(lcv, rev) + self.similarity(rcv, lev):
             if lcv or rev:
                 valid_trans.append(WordTransform("".join(lcv), "".join(rev)))
             if rcv or lev:
                 valid_trans.append(WordTransform("".join(rcv), "".join(lev)))
-            valid_trans.extend(self.learn_transformation_tokens(rev, lcv))
-            valid_trans.extend(self.learn_transformation_tokens(lev, rcv))
+            valid_trans.extend(self.learn_transformation_tokens(rcv, lev))
+            valid_trans.extend(self.learn_transformation_tokens(lcv, rev))
         return list(set(valid_trans))
 
 
@@ -213,6 +213,22 @@ class NCGenerator:
             if not rule.before_str:
                 yield rule.after_str
 
+    def _filter_normal_values(self, channel, values):
+        suspicious_chars = self._get_suspicious_chars(channel)
+        all_remove_values = []
+        for c in suspicious_chars:
+            removed_values = []
+            for value in values:
+                if c in value:
+                    removed_values.append(value)
+            if len(removed_values) < len(values) * 0.2:
+                all_remove_values.extend(removed_values)
+        for value in set(all_remove_values):
+            values.remove(value)
+        logger.debug("Remove_values", all_remove_values)
+        return values
+
+    # Generate Negative Values
     def _generate_transformed_data(self, channel, values: List[str]):
         examples = []
         wait_time = 0
@@ -232,41 +248,18 @@ class NCGenerator:
                 wait_time += 1
         return examples
 
-    def _filter_normal_values(self, channel, values):
-        suspicious_chars = self._get_suspicious_chars(channel)
-        all_remove_values = []
-        for c in suspicious_chars:
-            removed_values = []
-            for value in values:
-                if c in value:
-                    removed_values.append(value)
-            if len(removed_values) < len(values) * 0.2:
-                all_remove_values.extend(removed_values)
-        for value in set(all_remove_values):
-            values.remove(value)
-        logger.debug("Remove_values", all_remove_values)
-        return values
-
     def fit_transform_channel(self, channel, ec_pairs: List[Tuple[str, str]], values: List[str]):
-        logger.debug(f"Pair examples: {ec_pairs}")
+        # logger.debug(f"Pair examples: {ec_pairs}")
         neg_pairs = [x for x in ec_pairs if x[0] != x[1]]
         pos_pairs = [x for x in ec_pairs if x[0] == x[1]]
         channel.fit(neg_pairs)
         logger.debug("Rule Probabilities: " + str(channel.rule2prob))
-        neg_values = [x[0] for x in neg_pairs] + self._generate_transformed_data(
-            channel, values
-        )
-        logger.debug("Values: " + str(set(values)))
+        # logger.debug("Values: " + str(set(values)))
+        neg_values = [x[1] for x in neg_pairs] + self._generate_transformed_data(channel, values)
         pos_values = [x for x in list([val for val in values if val not in neg_values])]
-        pos_values = self._filter_normal_values(channel, pos_values) + [
-            x[0] for x in pos_pairs
-        ]
-        logger.debug(
-            f"{len(neg_values)} negative values: " + str(list(set(neg_values)))
-        )
-        logger.debug(
-            f"{len(pos_values)} positive values: " + str(list(set(pos_values)))
-        )
+        pos_values = self._filter_normal_values(channel, pos_values) + [x[0] for x in pos_pairs]
+        logger.debug(f"{len(neg_values)} negative values: " + str(list(set(neg_values))))
+        logger.debug(f"{len(pos_values)} positive values: " + str(list(set(pos_values))))
         data, labels = (
             neg_values + pos_values,
             [0 for _ in range(len(neg_values))] + [1 for _ in range(len(pos_values))],

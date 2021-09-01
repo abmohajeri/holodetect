@@ -8,8 +8,33 @@ from argparse import Namespace
 from pathlib import Path
 import yaml
 import ftfy
+from nltk import ngrams
 
 
+# Read datasets from given path (don't forget that each directory should contain raw & cleaned)
+def read_dataset(data_path, data_range=None):
+    data_range = [None, None] if data_range is None else data_range
+    data_path = Path(data_path)
+    raw_path = data_path / "raw"
+    cleaned_path = data_path / "cleaned"
+    name2raw = {}
+    name2cleaned = {}
+    name2groundtruth = {}
+    if data_range[0] == None:
+        data_range[0] = 0
+    if data_range[1] == None:
+        data_range[1] = len(list(raw_path.iterdir()))
+    for file_path in sorted(list(raw_path.iterdir()))[data_range[0]:data_range[1]]:
+        name = file_path.name
+        name2raw[name] = pd.read_csv(raw_path / name, keep_default_na=False, dtype=str)\
+                           .applymap(lambda x: ftfy.fix_text(x))
+        name2cleaned[name] = pd.read_csv(cleaned_path / name, keep_default_na=False, dtype=str)\
+                               .applymap(lambda x: ftfy.fix_text(x))
+        name2groundtruth[name] = name2raw[name] == name2cleaned[name]
+    return name2raw, name2cleaned, name2groundtruth
+
+
+# Load config file
 def load_config(config_path):
     config_path = Path(config_path)
     if config_path.is_dir():
@@ -28,10 +53,12 @@ def load_config(config_path):
         return hparams
 
 
+# Compare Function
 def not_equal(df1, df2):
     return (df1 != df2) & ~(df1.isnull() & df2.isnull())
 
 
+# Find two dataframe differences
 def diff_dfs(df1, df2, compare_func=not_equal):
     assert (df1.columns == df2.columns).all(), "DataFrame column names are different"
     if any(df1.dtypes != df2.dtypes):
@@ -53,6 +80,7 @@ def diff_dfs(df1, df2, compare_func=not_equal):
         return df
 
 
+# Convert string to regex
 def str2regex(x, match_whole_token=True):
     if not match_whole_token:
         try:
@@ -78,6 +106,7 @@ def str2regex(x, match_whole_token=True):
         return x
 
 
+# CollateFn parameter for dataloader: merges a list of samples to form a mini-batch of Tensor
 def unzip_and_stack_tensors(tensor):
     transpose_tensors = list(zip(*tensor))
     result = []
@@ -86,6 +115,7 @@ def unzip_and_stack_tensors(tensor):
     return result
 
 
+# Split data to train, validation and test
 def split_train_test_dls(data, collate_fn, batch_size, ratios=[0.7, 0.2], pin_memory=True, num_workers=16):
     train_length = int(len(data) * ratios[0])
     val_length = int(len(data) * ratios[1])
@@ -116,23 +146,36 @@ def split_train_test_dls(data, collate_fn, batch_size, ratios=[0.7, 0.2], pin_me
     return train_dl, val_dl, test_dl
 
 
-def read_dataset(data_path, data_range=None):
-    data_range = [None, None] if data_range is None else data_range
-    data_path = Path(data_path)
-    raw_path = data_path / "raw"
-    cleaned_path = data_path / "cleaned"
-    name2raw = {}
-    name2cleaned = {}
-    name2groundtruth = {}
-    if data_range[0] == None:
-        data_range[0] = 0
-    if data_range[1] == None:
-        data_range[1] = len(list(raw_path.iterdir()))
-    for file_path in sorted(list(raw_path.iterdir()))[data_range[0]:data_range[1]]:
-        name = file_path.name
-        name2raw[name] = pd.read_csv(raw_path / name, keep_default_na=False, dtype=str)\
-                           .applymap(lambda x: ftfy.fix_text(x[:100]))
-        name2cleaned[name] = pd.read_csv(cleaned_path / name, keep_default_na=False, dtype=str)\
-                               .applymap(lambda x: ftfy.fix_text(x[:100]))
-        name2groundtruth[name] = name2raw[name] == name2cleaned[name]
-    return name2raw, name2cleaned, name2groundtruth
+# Chunk value to ngrams (n is given)
+def xngrams(value, n, add_regex=True):
+    if add_regex:
+        value = "^" + value + "$"
+    if len(value) >= n:
+        return ["".join(ngram) for ngram in ngrams(list(value), n)]
+    else:
+        return [value]
+
+
+def val_trigrams(values, counter):
+    sum_count = sum(counter.values())
+    val_trigrams = [["".join(x) for x in list(xngrams(val, 3))] for val in values]
+    res = [
+        (min([counter[gram] for gram in trigram]) / sum_count if trigram else 0) * 1.0
+        for trigram in val_trigrams
+    ]
+    return res
+
+
+def sym_trigrams(values, counter):
+    patterns = list(map(lambda x: str2regex(x, False), values))
+    return val_trigrams(patterns, counter)
+
+
+def value_freq(values, counter):
+    sum_couter = sum(counter.values())
+    return [counter[value] * 1.0 / sum_couter for value in values]
+
+
+def sym_value_freq(values, counter):
+    patterns = list(map(lambda x: str2regex(x, True), values))
+    return value_freq(patterns, counter)
