@@ -17,21 +17,17 @@ def read_dataset(data_path, data_range=None):
     data_path = Path(data_path)
     raw_path = data_path / "raw"
     cleaned_path = data_path / "cleaned"
-    name2raw = {}
-    name2cleaned = {}
-    name2groundtruth = {}
-    if data_range[0] == None:
-        data_range[0] = 0
-    if data_range[1] == None:
-        data_range[1] = len(list(raw_path.iterdir()))
-    for file_path in sorted(list(raw_path.iterdir()))[data_range[0]:data_range[1]]:
-        name = file_path.name
-        name2raw[name] = pd.read_csv(raw_path / name, keep_default_na=False, dtype=str)\
-                           .applymap(lambda x: ftfy.fix_text(x))
-        name2cleaned[name] = pd.read_csv(cleaned_path / name, keep_default_na=False, dtype=str)\
-                               .applymap(lambda x: ftfy.fix_text(x))
-        name2groundtruth[name] = name2raw[name] == name2cleaned[name]
-    return name2raw, name2cleaned, name2groundtruth
+    name = list(raw_path.iterdir())[0].name
+    raw = pd.read_csv(raw_path / name, keep_default_na=False, dtype=str, skiprows=data_range[0], nrows=data_range[1]) \
+        .applymap(lambda x: ftfy.fix_text(x))
+    cleaned = pd.read_csv(cleaned_path / name, keep_default_na=False, dtype=str, skiprows=data_range[0], nrows=data_range[1]) \
+        .applymap(lambda x: ftfy.fix_text(x))
+    return {
+        'name': name,
+        'raw': raw,
+        'clean': cleaned,
+        'groundtruth': raw == cleaned
+    }
 
 
 # Load config file

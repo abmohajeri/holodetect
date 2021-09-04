@@ -20,7 +20,8 @@ getattr(hparams, method).num_gpus = 1
 getattr(hparams, method).num_examples = 2
 detector = key2model[method](getattr(hparams, method))
 # data_path should contain raw & cleaned directories
-name2raw, name2cleaned, name2groundtruth = read_dataset(data_path)
+dataset = read_dataset(data_path)
+training_data = read_dataset(data_path, [0, 100])
 
 # =============
 # Noisy Channel
@@ -34,25 +35,25 @@ name2raw, name2cleaned, name2groundtruth = read_dataset(data_path)
 # =================
 # Data Augmentation
 # =================
-# ec_str_pairs = list(zip(name2cleaned['hospital.csv']['ProviderNumber'], name2raw['hospital.csv']['ProviderNumber']))
+# training_data_append = training_data['raw'].append(dataset['clean'][100:])
+# ec_str_pairs = list(zip(dataset['clean']['ProviderNumber'], training_data_append['ProviderNumber']))
 # generator = NCGenerator()
-# data, labels = generator.fit_transform(ec_str_pairs, name2raw['hospital.csv']['ProviderNumber'].values.tolist())
+# data, labels = generator.fit_transform(ec_str_pairs, dataset['raw']['ProviderNumber'].values.tolist())
 # print(data, labels)
 
 # =========
 # Detection
 # =========
-# for name in name2raw.keys():
-#     detection = detector.detect(name2raw[name], name2cleaned[name])
-#     detection.to_csv(Path(output_path) / "prediction.csv", index=False)
+# detection = detector.detect(dataset, training_data)
+# detection.to_csv(Path(output_path) / "prediction.csv", index=False)
 
 # ==========
 # Evaluation
 # ==========
 evaluator = Evaluator()
-# evaluator.evaluate(detector, name2raw, name2cleaned, name2groundtruth, data_path, output_path)
+evaluator.evaluate(detector, dataset, training_data, output_path)
+
 # Evaluate single csv file
-prob_df = pd.read_csv('result/prediction.csv')
-for name in name2raw.keys():
-    report = evaluator.evaluate_csv(prob_df, name2raw[name], name2cleaned[name], name2groundtruth[name], data_path, output_path)
-    print(report)
+# prob_df = pd.read_csv('result/prediction.csv')
+# report = evaluator.evaluate_csv(prob_df, dataset, output_path)
+# print(report)

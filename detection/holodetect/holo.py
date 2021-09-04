@@ -122,8 +122,7 @@ class HoloDetector(BaseDetector):
             return word_data, char_data, features, label_data
         return word_data, char_data, features
 
-    def detect_values(self, ec_str_pairs: List[Tuple[str, str]], values: List[str]):
-        data, labels = self.generator.fit_transform(ec_str_pairs, values) # Data Augmentation
+    def detect_values(self, values: List[str], data, labels):
         feature_tensors_with_labels = self.extract_features(data, labels)
         dataset = TensorDataset(*feature_tensors_with_labels)
         train_dataloader, val_dataloader, _ = split_train_test_dls(
@@ -149,18 +148,18 @@ class HoloDetector(BaseDetector):
         pred = self.model.forward(*feature_tensors)
         return pred.squeeze(1).detach().cpu().numpy()
 
-    def detect(self, raw_df: pd.DataFrame, cleaned_df: pd.DataFrame):
-        result_df = raw_df.copy()
-        for column in raw_df.columns:
-            values = raw_df[column].values.tolist()
-            cleaned_values = cleaned_df[column].values.tolist()
-            false_values = []
-            for val, cleaned_val in zip(values, cleaned_values):
-                if val != cleaned_val:
-                    false_values.append((val, cleaned_val))
-            if not false_values:
-                result_df[column] = pd.Series([True for _ in range(len(raw_df))])
+    def detect(self, dataset: pd.DataFrame, training_data: pd.DataFrame):
+        result_df = dataset['raw'].copy()
+        for column in dataset['raw'].columns:
+            values = dataset['raw'][column].values.tolist()
+            cleaned_values = dataset['clean'][column].values.tolist()
+            training_values = training_data['raw'][column].values.tolist()
+            training_cleaned_values = training_data['clean'][column].values.tolist()
+            if values == cleaned_values:
+                result_df[column] = pd.Series([True for _ in range(len(dataset['raw']))])
             else:
-                outliers = self.detect_values(list(zip(cleaned_values, values)), values)
+                # Data Augmentation
+                data, labels = self.generator.fit_transform(list(zip(training_cleaned_values, training_values)), values)
+                outliers = self.detect_values(values, data, labels)
                 result_df[column] = pd.Series(outliers)
         return result_df
