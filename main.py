@@ -10,6 +10,7 @@ from detection.holodetect import HoloDetector
 # ======================
 output_path = "result"
 data_path = "data/datasets/holodetect/hospital"
+# data_path = "data/datasets/holodetect/soccer"
 config_path = "data/config"
 method = "holodetect"
 key2model = {
@@ -35,11 +36,12 @@ training_data = read_dataset(data_path, [0, 100])
 # =================
 # Data Augmentation
 # =================
-# training_data_append = training_data['raw'].append(dataset['clean'][100:])
-# ec_str_pairs = list(zip(dataset['clean']['ProviderNumber'], training_data_append['ProviderNumber']))
+# ec_str_pairs = list(zip(training_data['clean']['ProviderNumber'], training_data['raw']['ProviderNumber']))
 # generator = NCGenerator()
 # data, labels = generator.fit_transform(ec_str_pairs, dataset['raw']['ProviderNumber'].values.tolist())
-# print(data, labels)
+# print(len(data))
+# print(data)
+# print(labels)
 
 # =========
 # Detection
