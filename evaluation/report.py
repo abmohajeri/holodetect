@@ -6,7 +6,11 @@ import numpy as np
 
 # Output from - to - id - col - score (probability) - result (true or false)
 class Report:
-    def __init__(self, prob_df, raw_df, cleaned_df, groundtruth_df, threshold=0.5):
+    def __init__(self, prob_df, dataset, threshold=0.5):
+        raw_df = dataset['raw']
+        cleaned_df = dataset['clean']
+        groundtruth_df = dataset['groundtruth']
+        self.prob_df = prob_df
         self.threshold = threshold
         detected_df = prob_df.applymap(lambda x: x >= self.threshold)
         flat_result = detected_df.stack().values.tolist()
@@ -60,11 +64,13 @@ class Report:
         return concat_df, score_df
 
     def serialize(self, output_path):
+        prob_path = output_path / "predictions.csv"
         report_path = output_path / "report.csv"
         debug_path = output_path / "debug.csv"
         matrix_path = output_path / "matrix.csv"
         score_path = output_path / "scores.csv"
         output_path.mkdir(parents=True, exist_ok=True)
+        self.prob_df.to_csv(prob_path, index=False)
         self.report["index"] = self.report.index
         self.report.to_csv(report_path, index=False, quoting=csv.QUOTE_ALL)
         self.failures.to_csv(debug_path, index=False, quoting=csv.QUOTE_ALL)

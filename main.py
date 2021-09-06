@@ -10,6 +10,8 @@ from detection.holodetect import HoloDetector
 # ======================
 output_path = "result"
 data_path = "data/datasets/holodetect/hospital"
+# data_path = "data/datasets/other/movies"
+# data_path = "data/datasets/other/flights"
 # data_path = "data/datasets/holodetect/soccer"
 config_path = "data/config"
 method = "holodetect"
@@ -47,7 +49,7 @@ training_data = read_dataset(data_path, [0, 100])
 # Detection
 # =========
 # detection = detector.detect(dataset, training_data)
-# detection.to_csv(Path(output_path) / "prediction.csv", index=False)
+# detection.to_csv(output_path + "/prediction.csv", index=False)
 
 # ==========
 # Evaluation
