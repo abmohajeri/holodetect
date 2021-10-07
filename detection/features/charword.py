@@ -25,17 +25,20 @@ class CharWordExtractor:
             sym_value_freq: self.sym_val_counter,
         }
 
-    def fit_transform(self, values):
-        self.fit(values)
+    def transform(self, values):
         feature_lists = []
         for func, counter in self.func2counter.items():
-            f = partial(func, counter=counter) # counter=counter set default value for func counter argument
-            logger.debug(
-                "Negative: %s %s" % (func, list(zip(values[:10], f(values[:10]))))
-            )
-            logger.debug(
-                "Positive: %s %s" % (func, list(zip(values[-10:], f(values[-10:]))))
-            )
+            f = partial(func, counter=counter)  # counter=counter set default value for func counter argument
+            # logger.debug(
+            #     "Negative: %s %s" % (func, list(zip(values[:10], f(values[:10]))))
+            # )
+            # logger.debug(
+            #     "Positive: %s %s" % (func, list(zip(values[-10:], f(values[-10:]))))
+            # )
             feature_lists.append(f(values))
         feature_vecs = list(zip(*feature_lists))
         return np.asarray(feature_vecs)
+
+    def fit_transform(self, values):
+        self.fit(values)
+        return self.transform(values)

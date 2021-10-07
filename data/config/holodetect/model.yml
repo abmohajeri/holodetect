@@ -6,3 +6,4 @@ dropout: 0.2
 lr: 0.005 # Learning Rate
 num_epochs: 20 # Epoch Size
 num_workers: 8 # Use in DataLoader
+num_gpus: 1

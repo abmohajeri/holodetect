@@ -19,11 +19,8 @@ key2model = {
     "holodetect": HoloDetector
 }
 hparams = load_config(config_path)
-getattr(hparams, method).num_gpus = 1
-getattr(hparams, method).num_examples = 2
 detector = key2model[method](getattr(hparams, method))
-# data_path should contain raw & cleaned directories
-dataset = read_dataset(data_path)
+dataset = read_dataset(data_path) # data_path should contain raw & cleaned directories
 training_data = read_dataset(data_path, [0, 100])
 
 # =============
@@ -38,11 +35,24 @@ training_data = read_dataset(data_path, [0, 100])
 # =================
 # Data Augmentation
 # =================
-# ec_str_pairs = list(zip(training_data['clean']['ProviderNumber'], training_data['raw']['ProviderNumber']))
-# generator = NCGenerator()
-# data, labels = generator.fit_transform(ec_str_pairs, dataset['raw']['ProviderNumber'].values.tolist())
+# column = 'ProviderNumber'
+# training_cleaned_values = [
+#     RowBasedValue(value, row_dict, column)
+#     for value, row_dict in zip(training_data['clean'][column].values.tolist(), training_data['clean'].to_dict("records"))
+# ]
+# training_values = [
+#     RowBasedValue(value, row_dict, column)
+#     for value, row_dict in zip(training_data['raw'][column].values.tolist(), training_data['raw'].to_dict("records"))
+# ]
+# raw_values = [
+#     RowBasedValue(value, row_dict, column)
+#     for value, row_dict in zip(dataset['raw'][column].values.tolist(), dataset['raw'].to_dict("records"))
+# ]
+# ec_str_pairs = list(zip(training_cleaned_values, training_values))
+# data, labels = NCGenerator().fit_transform(ec_str_pairs, raw_values)
+# assert (len(data) == len(labels))
 # print(len(data))
-# print(data)
+# print([x.value for x in data])
 # print(labels)
 
 # =========
