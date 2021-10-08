@@ -214,6 +214,11 @@ class NCGenerator:
             if not rule.before_str:
                 yield rule.after_str
 
+    def _get_noisy_chars(self):
+        noisy_chars = [rule.after_str for rule in self.char_channel.rule2prob.keys()] if self.char_channel.rule2prob is not None else []
+        noisy_word = [rule.after_str for rule in self.word_channel.rule2prob.keys()] if self.word_channel.rule2prob is not None else []
+        return noisy_chars + noisy_word
+
     def _filter_normal_values(self, channel, values: List[RowBasedValue]):
         suspicious_chars = self._get_suspicious_chars(channel)
         all_remove_values = []
@@ -226,6 +231,12 @@ class NCGenerator:
                 all_remove_values.extend(removed_values)
         for value in set(all_remove_values):
             values.remove(value)
+        noisy_chars = list(set(self._get_noisy_chars()))
+        for c in noisy_chars:
+            for val in values:
+                if c in val.value:
+                    values.remove(val)
+                    all_remove_values.append(val)
         logger.debug("Remove_values" + str([x.value for x in all_remove_values]))
         return values
 
