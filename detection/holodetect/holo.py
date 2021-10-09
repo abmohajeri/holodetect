@@ -91,6 +91,8 @@ class HoloDetector(BaseDetector):
 
         tuple_embedding = self.alpha_feature_extractor.extract_coval_embedding(data)
 
+        # neighbor_embedding = self.alpha_feature_extractor.extract_neighbor_embedding(data)
+
         if labels is not None:
             charword_features = torch.tensor(self.scaler.fit_transform(self.format_feature_extractor.fit_transform(data_values)))
             val_stats, co_val_stats = self.stats_feature_extractor.fit_transform(data)

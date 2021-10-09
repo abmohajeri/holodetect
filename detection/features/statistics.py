@@ -1,4 +1,3 @@
-from sklearn.preprocessing import MinMaxScaler
 from sklearn.feature_extraction.text import CountVectorizer
 from detection.features.base import BaseExtractor
 from utils.helpers import str2regex

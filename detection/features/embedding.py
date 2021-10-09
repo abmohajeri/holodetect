@@ -1,12 +1,13 @@
 from typing import List
 import torch
-from torchtext.experimental.vectors import FastText
 from torchtext.data.utils import get_tokenizer
 from torchnlp.encoders.text.text_encoder import stack_and_pad_tensors
 from detection.features import BaseExtractor
 from utils import RowBasedValue
+import fasttext.util
+fasttext.util.download_model('en', if_exists='ignore')
+fasttext = fasttext.load_model('cc.en.300.bin')
 
-fasttext = FastText()
 tokenizer = get_tokenizer("spacy")
 
 
@@ -17,11 +18,19 @@ class AlphaFeatureExtractor(BaseExtractor):
     def transform(self, values: List[RowBasedValue]):
         pass
 
+    def lookup_vectors(self, tokens: List[str]):
+        if not len(tokens):
+            return torch.empty(0, 0)
+        emb = []
+        for token in tokens:
+            emb.append(fasttext.get_word_vector(token))
+        return torch.tensor(emb)
+
     # Attribute Level (Character Embedding & Word Embedding)
     def extract_embedding(self, data):
         char_data = stack_and_pad_tensors(
             [
-                fasttext.lookup_vectors(list(str_value))
+                self.lookup_vectors([str_value])
                 if str_value
                 else torch.zeros(1, 300)
                 for str_value in data
@@ -29,7 +38,7 @@ class AlphaFeatureExtractor(BaseExtractor):
         ).tensor
         word_data = stack_and_pad_tensors(
             [
-                fasttext.lookup_vectors(tokenizer(str_value))
+                self.lookup_vectors(tokenizer(str_value))
                 if str_value
                 else torch.zeros(1, 300)
                 for str_value in data
@@ -41,11 +50,24 @@ class AlphaFeatureExtractor(BaseExtractor):
     def extract_coval_embedding(self, data: List[RowBasedValue]):
         return stack_and_pad_tensors(
             [
-                fasttext.lookup_vectors(tokenizer(' '.join(list(x.row.values()))))
+                self.lookup_vectors(tokenizer(' '.join(list(x.row.values()))))
                 if x
                 else torch.zeros(1, 300)
                 for x in data
             ]
+        ).tensor
+
+    # Dataset Level (Tuple representation)
+    def extract_neighbor_embedding(self, data: List[RowBasedValue]):
+        dis = []
+        for x in data:
+            single_dis = []
+            for y in list(x.row.values()):
+                emb_txt = fasttext.get_nearest_neighbors(y, k=1)
+                single_dis.append(emb_txt[0][0])
+            dis.append(single_dis)
+        return stack_and_pad_tensors(
+            dis
         ).tensor
 
     def n_features(self):
