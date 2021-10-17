@@ -13,3 +13,5 @@ spacy==2.3.2
 numpy~=1.19.2
 utils~=1.0.1
 sklearn~=0.0
+fasttext
+sqldf

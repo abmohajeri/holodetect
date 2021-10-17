@@ -1,6 +1,6 @@
-from detection.features import *
+# from detection.features import *
 from utils import *
-from channel import *
+# from channel import *
 from evaluation import *
 from utils.helpers import read_dataset
 from detection.holodetect import HoloDetector
@@ -23,6 +23,10 @@ detector = key2model[method](getattr(hparams, method))
 dataset = read_dataset(data_path) # data_path should contain raw & cleaned directories
 training_data = read_dataset(data_path, [0, 100])
 
+constraints = Parser().load_denial_constraints(training_data['raw'].columns, data_path + '/constraints.txt')
+dataset['constraints'] = constraints
+training_data['constraints'] = constraints
+
 # =============
 # Noisy Channel
 # =============
@@ -35,7 +39,7 @@ training_data = read_dataset(data_path, [0, 100])
 # =================
 # Data Augmentation
 # =================
-# column = 'ProviderNumber'
+# column = 'ProviderNumber' # Hospital Dataset
 # training_cleaned_values = [
 #     RowBasedValue(value, row_dict, column)
 #     for value, row_dict in zip(training_data['clean'][column].values.tolist(), training_data['clean'].to_dict("records"))
@@ -54,6 +58,12 @@ training_data = read_dataset(data_path, [0, 100])
 # print(len(data))
 # print([x.value for x in data])
 # print(labels)
+
+# ========================
+# Denial Constraint Parser
+# ========================
+# errors = ViolationDetector(training_data['raw'], constraints).detect_noisy_cells()
+# print(errors)
 
 # =========
 # Detection

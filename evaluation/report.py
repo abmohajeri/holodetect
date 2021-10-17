@@ -4,6 +4,7 @@ from utils.helpers import diff_dfs, not_equal
 from sklearn.metrics import classification_report, confusion_matrix
 import numpy as np
 
+
 # Output from - to - id - col - score (probability) - result (true or false)
 class Report:
     def __init__(self, prob_df, dataset, threshold=0.5):
