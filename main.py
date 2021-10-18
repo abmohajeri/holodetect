@@ -23,7 +23,8 @@ detector = key2model[method](getattr(hparams, method))
 dataset = read_dataset(data_path) # data_path should contain raw & cleaned directories
 training_data = read_dataset(data_path, [0, 100])
 
-constraints = Parser().load_denial_constraints(training_data['raw'].columns, data_path + '/constraints.txt')
+constraint = False # Change This to True if Constraints Provided
+constraints = Parser().load_denial_constraints(training_data['raw'].columns, data_path + '/constraints.txt') if constraint else None
 dataset['constraints'] = constraints
 training_data['constraints'] = constraints
 

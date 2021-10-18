@@ -1,7 +1,7 @@
 from typing import List
 import torch.nn.functional as F
 from detection.base import *
-from detection.features import StatsExtractor, CharWordExtractor, AlphaFeatureExtractor
+from detection.features import StatsExtractor, CharWordExtractor, AlphaFeatureExtractor, OneHotExtractor
 from utils.dcparser import Parser, ViolationDetector
 from utils.highway import Highway
 from utils.row import RowBasedValue
@@ -11,6 +11,7 @@ from pytorch_lightning import Trainer
 from torch import nn, optim
 from torch.utils.data.dataset import TensorDataset
 from sklearn.preprocessing import MinMaxScaler
+torch.cuda.empty_cache()
 
 
 class HoloLearnableModule(nn.Module):
@@ -41,11 +42,11 @@ class HoloModel(BaseModule):
             nn.Linear(hparams.input_dim, 1),
         )
 
-    def forward(self, char_inputs, word_inputs, charword, tuple_embedding, co_val_stats, val_stats, dc_features):
+    def forward(self, char_inputs, word_inputs, charword, tuple_embedding, co_val_stats, val_stats, dc_features, onehot_features):
         char_out = self.learnable_module(char_inputs)
         word_out = self.learnable_module(word_inputs)
         tuple_emb_out = self.learnable_module(tuple_embedding)
-        concat_inputs = torch.cat([char_out, word_out, charword, tuple_emb_out, co_val_stats, val_stats, dc_features], dim=1).float()
+        concat_inputs = torch.cat([char_out, word_out, charword, tuple_emb_out, co_val_stats, val_stats, dc_features, onehot_features], dim=1).float()
         # print('Debug of Input input_dim')
         # print(self.hparams.input_dim)
         # print(concat_inputs.shape)
@@ -54,18 +55,18 @@ class HoloModel(BaseModule):
         return torch.sigmoid(fcs)
 
     def training_step(self, batch, batch_idx):
-        char_inputs, word_inputs, charword, tuple_embedding, co_val_stats, val_stats, dc_features, labels = batch
+        char_inputs, word_inputs, charword, tuple_embedding, co_val_stats, val_stats, dc_features, onehot_features, labels = batch
         labels = labels.view(-1, 1)
-        probs = self.forward(char_inputs, word_inputs, charword, tuple_embedding, co_val_stats, val_stats, dc_features)
+        probs = self.forward(char_inputs, word_inputs, charword, tuple_embedding, co_val_stats, val_stats, dc_features, onehot_features)
         loss = F.binary_cross_entropy(probs, labels.float())
         preds = probs >= 0.5
         acc = (labels == preds).sum().float() / labels.shape[0]
         return {"loss": loss, "acc": acc}
 
     def validation_step(self, batch, batch_idx):
-        char_inputs, word_inputs, charword, tuple_embedding, co_val_stats, val_stats, dc_features, labels = batch
+        char_inputs, word_inputs, charword, tuple_embedding, co_val_stats, val_stats, dc_features, onehot_features, labels = batch
         labels = labels.view(-1, 1)
-        probs = self.forward(char_inputs, word_inputs, charword, tuple_embedding, co_val_stats, val_stats, dc_features)
+        probs = self.forward(char_inputs, word_inputs, charword, tuple_embedding, co_val_stats, val_stats, dc_features, onehot_features)
         loss = F.binary_cross_entropy(probs, labels.float())
         preds = probs >= 0.5
         acc = (labels == preds).sum().float() / labels.shape[0]
@@ -84,6 +85,7 @@ class HoloDetector(BaseDetector):
         self.alpha_feature_extractor = AlphaFeatureExtractor()
         self.format_feature_extractor = CharWordExtractor() # Attribute Level (3-gram, symbolic 3-gram and empirical distribution model)
         self.stats_feature_extractor = StatsExtractor()
+        self.onehot_feature_extractor = OneHotExtractor()
 
     def extract_features(self, data, labels=None, constraints=None):
         column = data[0].column
@@ -96,12 +98,18 @@ class HoloDetector(BaseDetector):
 
         # neighbor_embedding = self.alpha_feature_extractor.extract_neighbor_embedding(data)
 
-        dc_errors = ViolationDetector(df, constraints).detect_noisy_cells()
-        dc_errors = dc_errors[[True if column == x['column'] else False for i, x in dc_errors.iterrows()]]
-        dc_errors_count = dc_errors.groupby('index').size().reset_index().rename(columns={0: 'count'})
-        dc_errors_count = df[['index']].astype(int).merge(dc_errors_count, how='left').fillna(0)
+        df['u_id'] = df.index
+        if constraints is not None:
+            dc_errors = ViolationDetector(df, constraints).detect_noisy_cells()
+            dc_errors = dc_errors[[True if column == x['column'] else False for i, x in dc_errors.iterrows()]]
+            dc_errors_count = dc_errors.groupby('u_id').size().reset_index().rename(columns={0: 'count'})
+            dc_errors_count = df[['u_id']].astype(int).merge(dc_errors_count, how='left').fillna(0)
+        else:
+            dc_errors_count = df[['u_id']].astype(int)
+            dc_errors_count['count'] = 0
 
         if labels is not None:
+            onehot_features = torch.tensor(self.onehot_feature_extractor.fit_transform(data).todense())
             error_labels_index = [i for i, x in enumerate(labels) if x == 0]
             dc_features = torch.tensor([[row['count']] if index in error_labels_index else [0] for index, row in
                                         dc_errors_count.iterrows()])
@@ -109,8 +117,9 @@ class HoloDetector(BaseDetector):
             val_stats, co_val_stats = self.stats_feature_extractor.fit_transform(data)
             val_stats = torch.tensor(val_stats)
             co_val_stats = torch.tensor(co_val_stats)
-            self.hparams.model.input_dim = self.stats_feature_extractor.n_features() + 8
+            self.hparams.model.input_dim = self.stats_feature_extractor.n_features() + self.onehot_feature_extractor.n_features() + 8
         else:
+            onehot_features = torch.tensor(self.onehot_feature_extractor.transform(data).todense())
             dc_features = torch.tensor([[row['count']] for index, row in dc_errors_count.iterrows()])
             charword_features = torch.tensor(self.scaler.transform(self.format_feature_extractor.transform(data_values)))
             val_stats, co_val_stats = self.stats_feature_extractor.transform(data)
@@ -118,9 +127,9 @@ class HoloDetector(BaseDetector):
             co_val_stats = torch.tensor(co_val_stats)
 
         if labels is not None:
-            return char_data, word_data, charword_features, tuple_embedding, co_val_stats, val_stats, dc_features, torch.tensor(labels)
+            return char_data, word_data, charword_features, tuple_embedding, co_val_stats, val_stats, dc_features, onehot_features, torch.tensor(labels)
 
-        return char_data, word_data, charword_features, tuple_embedding, co_val_stats, val_stats, dc_features
+        return char_data, word_data, charword_features, tuple_embedding, co_val_stats, val_stats, dc_features, onehot_features
 
     def detect_values(self, row_values, data, labels, constraints):
         feature_tensors_with_labels = self.extract_features(data, labels, constraints)
