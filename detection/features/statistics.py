@@ -23,7 +23,7 @@ class StatsExtractor(BaseExtractor):
                 continue
             covalue_list = []
             for value in values:
-                covalue_list.append(f"{value}||{name}||{value.row[name]}")
+                covalue_list.append(f"{value.row.values()}||{name}||{value.row[name]}")
             self.covalue_counter[name] = CountVectorizer(
                 analyzer=lambda x: [x]
             ).fit(covalue_list)
@@ -45,7 +45,7 @@ class StatsExtractor(BaseExtractor):
                 continue
             covalue_list = []
             for value in values:
-                covalue_list.append(f"{value}||{name}||{value.row[name]}") # RowBasedValue||Column||Value
+                covalue_list.append(f"{value.row.values()}||{name}||{value.row[name]}")
             co_feature_lists.append(
                 self.covalue_counter[name].transform(covalue_list).todense()
             )

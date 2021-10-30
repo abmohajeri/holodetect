@@ -47,7 +47,7 @@ class AlphaFeatureExtractor(BaseExtractor):
         return char_data, word_data
 
     # Tuple Level (Tuple representation)
-    def extract_coval_embedding(self, data: List[RowBasedValue]):
+    def extract_tuple_embedding(self, data: List[RowBasedValue]):
         return stack_and_pad_tensors(
             [
                 self.lookup_vectors(tokenizer(' '.join(list(x.row.values()))))

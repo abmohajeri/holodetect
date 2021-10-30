@@ -94,7 +94,7 @@ class HoloDetector(BaseDetector):
 
         char_data, word_data = self.alpha_feature_extractor.extract_embedding(data_values)
 
-        tuple_embedding = self.alpha_feature_extractor.extract_coval_embedding(data)
+        tuple_embedding = self.alpha_feature_extractor.extract_tuple_embedding(data)
 
         # neighbor_embedding = self.alpha_feature_extractor.extract_neighbor_embedding(data)
 
@@ -109,18 +109,22 @@ class HoloDetector(BaseDetector):
             dc_errors_count['count'] = 0
 
         if labels is not None:
-            onehot_features = torch.tensor(self.onehot_feature_extractor.fit_transform(data).todense())
             error_labels_index = [i for i, x in enumerate(labels) if x == 0]
             dc_features = torch.tensor([[row['count']] if index in error_labels_index else [0] for index, row in
                                         dc_errors_count.iterrows()])
+
+            onehot_features = torch.tensor(self.onehot_feature_extractor.fit_transform(data).todense())
+
             charword_features = torch.tensor(self.scaler.fit_transform(self.format_feature_extractor.fit_transform(data_values)))
             val_stats, co_val_stats = self.stats_feature_extractor.fit_transform(data)
             val_stats = torch.tensor(val_stats)
             co_val_stats = torch.tensor(co_val_stats)
             self.hparams.model.input_dim = self.stats_feature_extractor.n_features() + self.onehot_feature_extractor.n_features() + 8
         else:
-            onehot_features = torch.tensor(self.onehot_feature_extractor.transform(data).todense())
             dc_features = torch.tensor([[row['count']] for index, row in dc_errors_count.iterrows()])
+
+            onehot_features = torch.tensor(self.onehot_feature_extractor.transform(data).todense())
+
             charword_features = torch.tensor(self.scaler.transform(self.format_feature_extractor.transform(data_values)))
             val_stats, co_val_stats = self.stats_feature_extractor.transform(data)
             val_stats = torch.tensor(val_stats)
