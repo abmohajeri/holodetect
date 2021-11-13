@@ -32,7 +32,6 @@ class ViolationDetector:
         for i in range(len(attrs)):
             res = results[i]
             attr_list = attrs[i]
-            predicates_list = predicates[i]
             tmp_df = self.get_output(res, attr_list)
             errors.append(tmp_df)
         errors_df = pd.concat(errors, ignore_index=True).drop_duplicates().reset_index(drop=True)
@@ -64,7 +63,7 @@ class ViolationDetector:
             elif 't2' in pred.cnf_form:
                 cond2_preds.append(pred.cnf_form)
             else:
-                raise Exception("ERROR in violation detector. Cannot ground mult-tuple template.")
+                raise Exception("ERROR in violation detector. Cannot ground multi-tuple template.")
         cond1 = " AND ".join(cond1_preds)
         cond2 = " AND ".join(cond2_preds)
         a = ','.join(c.components)
@@ -79,8 +78,9 @@ class ViolationDetector:
         return query
 
     def get_output(self, res, attr_list):
-        errors = []
-        for index, row in res.iterrows():
-            errors.append({'index': int(row['index']), 'column': attr_list[-1], 'attribute': str(attr_list)})
+        errors = [
+            {'u_id': int(row['u_id']), 'index': int(row['index']), 'column': attr_list[-1], 'attribute': str(attr_list)}
+            for index, row in res.iterrows()
+        ]
         error_df = pd.DataFrame(data=errors)
         return error_df

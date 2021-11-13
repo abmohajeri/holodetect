@@ -59,15 +59,13 @@ class AlphaFeatureExtractor(BaseExtractor):
 
     # Dataset Level (Tuple representation)
     def extract_neighbor_embedding(self, data: List[RowBasedValue]):
-        dis = []
-        for x in data:
-            single_dis = []
-            for y in list(x.row.values()):
-                emb_txt = fasttext.get_nearest_neighbors(y, k=1)
-                single_dis.append(emb_txt[0][0])
-            dis.append(single_dis)
         return stack_and_pad_tensors(
-            dis
+            [
+                fasttext.get_nearest_neighbors(str_value, k=1)[0][0]
+                if str_value
+                else torch.zeros(1, 300)
+                for str_value in data
+            ]
         ).tensor
 
     def n_features(self):
