@@ -1,7 +1,8 @@
-from typing import List
+import copy
 import torch.nn.functional as F
 from detection.base import *
 from detection.features import StatsExtractor, CharWordExtractor, AlphaFeatureExtractor, OneHotExtractor
+from utils import LabelEncoderRobust
 from utils.dcparser import Parser, ViolationDetector
 from utils.highway import Highway
 from utils.row import RowBasedValue
@@ -10,6 +11,8 @@ from utils.helpers import *
 from pytorch_lightning import Trainer
 from torch import nn, optim
 from torch.utils.data.dataset import TensorDataset
+from captum.attr import IntegratedGradients, LayerIntegratedGradients, FeatureAblation, LRP
+from captum.attr._utils.lrp_rules import EpsilonRule, IdentityRule
 from sklearn.preprocessing import MinMaxScaler
 torch.cuda.empty_cache()
 
@@ -42,31 +45,36 @@ class HoloModel(BaseModule):
             nn.Linear(hparams.input_dim, 1),
         )
 
-    def forward(self, char_inputs, word_inputs, charword, tuple_embedding, co_val_stats, dc_features, onehot_features):
-        char_out = self.learnable_module(char_inputs)
-        word_out = self.learnable_module(word_inputs)
-        tuple_emb_out = self.learnable_module(tuple_embedding)
-        concat_inputs = torch.cat([char_out, word_out, charword, tuple_emb_out, co_val_stats, dc_features, onehot_features], dim=1).float()
+    def concat_input(self, char_inputs, word_inputs, charword, tuple_embedding, co_val_stats, dc_features, onehot_features, neighbor_embedding):
+        char_inputs = self.learnable_module(char_inputs)
+        word_inputs = self.learnable_module(word_inputs)
+        tuple_embedding = self.learnable_module(tuple_embedding)
+        concat_inputs = torch.cat([char_inputs, word_inputs, charword, tuple_embedding, co_val_stats, dc_features, onehot_features, neighbor_embedding], dim=1).float()
         # print('Debug of Input input_dim')
         # print(self.hparams.input_dim)
         # print(concat_inputs.shape)
         # print('End Debug of Input input_dim')
+        return concat_inputs
+
+    def forward(self, concat_inputs):
         fcs = self.fcs(concat_inputs)
         return torch.sigmoid(fcs)
 
     def training_step(self, batch, batch_idx):
-        char_inputs, word_inputs, charword, tuple_embedding, co_val_stats, dc_features, onehot_features, labels = batch
+        char_inputs, word_inputs, charword, tuple_embedding, co_val_stats, dc_features, onehot_features, neighbor_embedding, labels = batch
         labels = labels.view(-1, 1)
-        probs = self.forward(char_inputs, word_inputs, charword, tuple_embedding, co_val_stats, dc_features, onehot_features)
+        concat_inputs = self.concat_input(char_inputs, word_inputs, charword, tuple_embedding, co_val_stats, dc_features, onehot_features, neighbor_embedding)
+        probs = self.forward(concat_inputs)
         loss = F.binary_cross_entropy(probs, labels.float())
         preds = probs >= 0.5
         acc = (labels == preds).sum().float() / labels.shape[0]
         return {"loss": loss, "acc": acc}
 
     def validation_step(self, batch, batch_idx):
-        char_inputs, word_inputs, charword, tuple_embedding, co_val_stats, dc_features, onehot_features, labels = batch
+        char_inputs, word_inputs, charword, tuple_embedding, co_val_stats, dc_features, onehot_features, neighbor_embedding, labels = batch
         labels = labels.view(-1, 1)
-        probs = self.forward(char_inputs, word_inputs, charword, tuple_embedding, co_val_stats, dc_features, onehot_features)
+        concat_inputs = self.concat_input(char_inputs, word_inputs, charword, tuple_embedding, co_val_stats, dc_features, onehot_features, neighbor_embedding)
+        probs = self.forward(concat_inputs)
         loss = F.binary_cross_entropy(probs, labels.float())
         preds = probs >= 0.5
         acc = (labels == preds).sum().float() / labels.shape[0]
@@ -83,8 +91,9 @@ class HoloDetector(BaseDetector):
         self.generator = NCGenerator() # Noisy channel that augments data
         self.scaler = MinMaxScaler()  # Transform features by scaling each feature to a given range (mainly 0-1)
         self.alpha_feature_extractor = AlphaFeatureExtractor()
-        self.format_feature_extractor = CharWordExtractor() # Attribute Level (3-gram, symbolic 3-gram and empirical distribution model)
+        self.format_feature_extractor = CharWordExtractor()  # Attribute Level (3-gram, symbolic 3-gram and empirical distribution model)
         self.stats_feature_extractor = StatsExtractor()
+        self.label_encoder = LabelEncoderRobust()  # Use for one hot encoding
         self.onehot_feature_extractor = OneHotExtractor()
 
     def extract_features(self, data, labels=None, constraints=None):
@@ -97,40 +106,47 @@ class HoloDetector(BaseDetector):
 
         tuple_embedding = self.alpha_feature_extractor.extract_tuple_embedding(data)
 
-        # neighbor_embedding = self.alpha_feature_extractor.extract_neighbor_embedding(data_values)
+        neighbor_embedding = self.alpha_feature_extractor.extract_neighbor_embedding(data_values)
 
         if constraints is not None:
             dc_errors = ViolationDetector(df, constraints).detect_noisy_cells()
             dc_errors = dc_errors[[True if column == x['column'] else False for i, x in dc_errors.iterrows()]]
-            dc_errors_count = dc_errors.groupby('u_id').size().reset_index().rename(columns={0: 'count'})
-            dc_errors_count = df[['u_id']].astype(int).merge(dc_errors_count, how='left').fillna(0)
+            if len(dc_errors):
+                dc_errors_count = dc_errors.groupby('u_id').size().reset_index().rename(columns={0: 'count'})
+                dc_errors_count = df[['u_id']].astype(int).merge(dc_errors_count, how='left').fillna(0)
+            else:
+                dc_errors_count = df[['u_id']].astype(int)
+                dc_errors_count['count'] = 0
         else:
             dc_errors_count = df[['u_id']].astype(int)
             dc_errors_count['count'] = 0
 
         if labels is not None:
-            dc_features = torch.tensor([[row['count']] for index, row in
-                                        dc_errors_count.iterrows()])
-
-            onehot_features = torch.tensor(self.onehot_feature_extractor.fit_transform(data).todense())
+            dc_features = torch.tensor([[row['count']] for index, row in dc_errors_count.iterrows()])
 
             charword_features = torch.tensor(self.scaler.fit_transform(self.format_feature_extractor.fit_transform(data_values)))
-            co_val_stats = self.stats_feature_extractor.fit_transform(data)
-            co_val_stats = torch.tensor(co_val_stats)
-            self.hparams.model.input_dim = self.stats_feature_extractor.n_features() + self.onehot_feature_extractor.n_features() + 8
+
+            self.label_encoder.fit(data_values)
+            targets = self.label_encoder.transform(data_values).reshape(-1, 1)
+            onehot_features = torch.tensor(self.onehot_feature_extractor.fit_transform(targets).todense())
+
+            co_val_stats = torch.tensor(self.stats_feature_extractor.fit_transform(data))
+
+            self.hparams.model.input_dim = co_val_stats.shape[1] + onehot_features.shape[1] + 9
         else:
             dc_features = torch.tensor([[row['count']] for index, row in dc_errors_count.iterrows()])
 
-            onehot_features = torch.tensor(self.onehot_feature_extractor.transform(data).todense())
-
             charword_features = torch.tensor(self.scaler.transform(self.format_feature_extractor.transform(data_values)))
-            co_val_stats = self.stats_feature_extractor.transform(data)
-            co_val_stats = torch.tensor(co_val_stats)
+
+            targets = self.label_encoder.transform(data_values).reshape(-1, 1)
+            onehot_features = torch.tensor(self.onehot_feature_extractor.transform(targets).todense())
+
+            co_val_stats = torch.tensor(self.stats_feature_extractor.transform(data))
 
         if labels is not None:
-            return char_data, word_data, charword_features, tuple_embedding, co_val_stats, dc_features, onehot_features, torch.tensor(labels)
+            return char_data, word_data, charword_features, tuple_embedding, co_val_stats, dc_features, onehot_features, neighbor_embedding, torch.tensor(labels)
 
-        return char_data, word_data, charword_features, tuple_embedding, co_val_stats, dc_features, onehot_features
+        return char_data, word_data, charword_features, tuple_embedding, co_val_stats, dc_features, onehot_features, neighbor_embedding
 
     def detect_values(self, row_values, data, labels, constraints):
         feature_tensors_with_labels = self.extract_features(data, labels, constraints)
@@ -141,9 +157,11 @@ class HoloDetector(BaseDetector):
         if len(train_dataloader) > 0:
             self.model = HoloModel(self.hparams.model)
             self.model.train()
+            # dp is DataParallel (split batch among GPUs of same machine)
+            # ddp is DistributedDataParallel (each gpu on each node trains, and syncs grads)
             trainer = Trainer(
                 gpus=self.hparams.model.num_gpus,
-                accelerator="dp", # dp is DataParallel (split batch among GPUs of same machine) & ddp is DistributedDataParallel (each gpu on each node trains, and syncs grads)
+                accelerator="dp",
                 log_every_n_steps=30,
                 max_epochs=self.hparams.model.num_epochs,
                 auto_lr_find=True
@@ -153,22 +171,69 @@ class HoloDetector(BaseDetector):
                 train_dataloaders=train_dataloader,
                 val_dataloaders=val_dataloader
             )
+
         feature_tensors = self.extract_features(row_values, constraints=constraints)
-        xai_df = pd.DataFrame(
-            {
-                'values': [x.value for x in row_values],
-                'row_values': [' '.join(x.row.values()) for x in row_values],
-                'val_trigrams': [x[0] for x in feature_tensors[2].tolist()],
-                'sym_trigrams': [x[1] for x in feature_tensors[2].tolist()],
-                'value_freq': [x[2] for x in feature_tensors[2].tolist()],
-                'sym_value_freq': [x[3] for x in feature_tensors[2].tolist()],
-                'dc_stats': [x[0] for x in feature_tensors[5].tolist()]
-            }
-        )
-        xai_df.to_csv("{}_xai_features.csv".format(data[0].column), index=False)
+        individuals = self.model.concat_input(*feature_tensors)
         self.model.eval()
-        pred = self.model.forward(*feature_tensors)
-        return pred.squeeze(1).detach().cpu().numpy()
+        pred = self.model.forward(individuals)
+        predictions = pred.squeeze(1).detach().cpu().numpy()
+
+        # Let's start with the interpretation
+        y_hat = [1 if x >= 0.5 else 0 for x in predictions]
+
+        # LRP
+        # self.model.fcs[2].rule = IdentityRule()
+        # lrp = LRP(self.model.fcs)
+        # importance = lrp.attribute(individuals).abs().detach().cpu().numpy()
+        # print("Importance:", pd.DataFrame(np.array(importance)))
+        # print("Probability of Error:", self.model.forward(individuals))
+
+        # Feature Ablation
+        # feature_mask = \
+        #     [0, 1, 2, 2, 2, 2, 3] + \
+        #     [4 for x in range(len(feature_tensors_with_labels[4][0]))] + \
+        #     [5] + \
+        #     [6 for x in range(len(feature_tensors_with_labels[6][0]))] + \
+        #     [7]
+        # flb = FeatureAblation(self.model.fcs)
+        # importance = flb.attribute(individuals[:1], feature_mask=torch.tensor(feature_mask)).detach().cpu().numpy()[0]
+        # print("Importance:", pd.DataFrame(np.array(importance)))
+        # print("Probability of Error:", self.model.forward(individuals[:1]))
+
+        # FeatureAblation
+        to_be_df = []
+        feature_mask = \
+            [0, 1, 2, 2, 2, 2, 3] + \
+             [4 for x in range(len(feature_tensors_with_labels[4][0]))] + \
+             [5] + \
+             [6 for x in range(len(feature_tensors_with_labels[6][0]))] + \
+             [7]
+        flb = FeatureAblation(self.model.fcs)
+        for i in range(len(individuals)):
+            importance = flb.attribute(individuals[i:i+1], feature_mask=torch.tensor(feature_mask)).abs().detach().cpu().numpy()[0]
+            unique_importance = {}
+            for i, mask in enumerate(feature_mask):
+                unique_importance[mask] = importance[i]
+            importance = list(unique_importance.values())
+            for base_type, vals in [
+                ("base", importance)
+            ]:
+                for j, name in enumerate(["char_embedding",
+                                          "word_embedding",
+                                          "frequencies",
+                                          "tuple_embedding",
+                                          "co_val_stats",
+                                          "dc_features",
+                                          "onehot_features",
+                                          "neighbor_embedding"]):
+                    to_be_df.append({
+                        "base-type": base_type,
+                        "feature": name,
+                        "value": vals[j],
+                    })
+        df = pd.DataFrame(to_be_df)
+        df.to_csv("xai/{}_xai.csv".format(data[0].column))
+        return predictions
 
     def detect(self, dataset: pd.DataFrame, training_data: pd.DataFrame):
         result_df = dataset['raw'].copy()
@@ -176,7 +241,6 @@ class HoloDetector(BaseDetector):
             cleaned_values = dataset['clean'][column].values.tolist()
             values = dataset['raw'][column].values.tolist()
             if values == cleaned_values:
-            # if column != 'ProviderNumber' and column != 'City' and column != 'State' and column != 'ZipCode':
                 result_df[column] = pd.Series([1.0 for _ in range(len(dataset['raw']))])
             else:
                 row_values = [
@@ -192,7 +256,8 @@ class HoloDetector(BaseDetector):
                     for value, row_dict in zip(training_data['raw'][column].values.tolist(), training_data['raw'].to_dict("records"))
                 ]
                 # Data Augmentation
-                data, labels = self.generator.fit_transform(list(zip(training_cleaned_values, training_values)), row_values)
+                temp_training_row_values = copy.deepcopy(row_values)
+                data, labels = self.generator.fit_transform(list(zip(training_cleaned_values, training_values)), temp_training_row_values)
                 outliers = self.detect_values(row_values, data, labels, training_data['constraints'])
                 result_df[column] = pd.Series(outliers)
         return result_df

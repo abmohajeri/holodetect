@@ -1,0 +1,2 @@
+t1&t2&EQ(t1.city,t2.city)&IQ(t1.state,t2.state)
+t1&t2&EQ(t1.name,t2.name)&IQ(t1.zipCode,t2.zipCode)

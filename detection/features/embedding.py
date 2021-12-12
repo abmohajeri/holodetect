@@ -4,9 +4,19 @@ from torchtext.data.utils import get_tokenizer
 from torchnlp.encoders.text.text_encoder import stack_and_pad_tensors
 from detection.features import BaseExtractor
 from utils import RowBasedValue
-import fasttext.util
-fasttext.util.download_model('en', if_exists='ignore')
-fasttext = fasttext.load_model('cc.en.300.bin')
+import fasttext
+
+# Use This if You Want Wikipedia Corpora
+# import fasttext.util
+# fasttext.util.download_model('en', if_exists='ignore')
+# fasttext = fasttext.load_model('cc.en.300.bin')
+
+# fasttext = fasttext.train_unsupervised('data/datasets/holodetect/hospital/raw/hospital.csv', "cbow", lr=0.5, dim=300)
+# fasttext = fasttext.train_unsupervised('data/datasets/holodetect/soccer/raw/soccer.csv', "cbow", lr=0.5, dim=300)
+# fasttext = fasttext.train_unsupervised('data/datasets/other/toy/raw/toy.csv', "cbow", lr=0.5, dim=300)
+fasttext = fasttext.train_unsupervised('data/datasets/other/toy_edited/raw/toy.csv', "cbow", lr=0.5, dim=300)
+# fasttext = fasttext.train_unsupervised('data/datasets/other/restaurant/raw/restaurant.csv', "cbow", lr=0.5, dim=300)
+# fasttext = fasttext.train_unsupervised('data/datasets/other/university/raw/university.csv', "cbow", lr=0.5, dim=300)
 
 tokenizer = get_tokenizer("spacy")
 
@@ -59,14 +69,12 @@ class AlphaFeatureExtractor(BaseExtractor):
 
     # Dataset Level (Tuple representation)
     def extract_neighbor_embedding(self, data: List[RowBasedValue]):
-        return stack_and_pad_tensors(
-            [
-                fasttext.get_nearest_neighbors(str_value, k=1)[0][0]
+        return torch.tensor([
+                [fasttext.get_nearest_neighbors(str_value, k=1)[0][0]]
                 if str_value
                 else torch.zeros(1, 300)
                 for str_value in data
-            ]
-        ).tensor
+            ])
 
     def n_features(self):
         return 300

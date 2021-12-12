@@ -79,7 +79,7 @@ class ViolationDetector:
 
     def get_output(self, res, attr_list):
         errors = [
-            {'u_id': int(row['u_id']), 'index': int(row['index']), 'column': attr_list[-1], 'attribute': str(attr_list)}
+            {'u_id': int(row['u_id']), 'column': attr_list[-1], 'attribute': str(attr_list)}
             for index, row in res.iterrows()
         ]
         error_df = pd.DataFrame(data=errors)

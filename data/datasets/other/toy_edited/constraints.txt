@@ -1,0 +1,1 @@
+t1&t2&EQ(t1.Kingdom,t2.Kingdom)&IQ(t1.Lord,t2.Lord)

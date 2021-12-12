@@ -1,5 +1,5 @@
 batch_size: 60
-input_dim: 6
+input_dim: 11
 emb_dim: 300
 num_layers: 2
 dropout: 0.2

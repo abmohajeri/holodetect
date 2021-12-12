@@ -15,3 +15,4 @@ utils~=1.0.1
 sklearn~=0.0
 fasttext
 sqldf
+captum

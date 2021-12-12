@@ -9,7 +9,11 @@ from detection.holodetect import HoloDetector
 # Environment Variables
 # ======================
 output_path = "result"
-data_path = "data/datasets/holodetect/hospital"
+# data_path = "data/datasets/holodetect/hospital"
+# data_path = "data/datasets/other/toy"
+data_path = "data/datasets/other/toy_edited"
+# data_path = "data/datasets/other/university"
+# data_path = "data/datasets/other/restaurant"
 # data_path = "data/datasets/other/movies"
 # data_path = "data/datasets/other/flights"
 # data_path = "data/datasets/holodetect/soccer"

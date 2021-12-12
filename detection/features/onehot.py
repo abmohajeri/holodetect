@@ -8,10 +8,10 @@ class OneHotExtractor(BaseExtractor):
         self.enc = OneHotEncoder(handle_unknown='ignore')
 
     def fit(self, values):
-        self.enc.fit([(val.value, idx) for idx, val in enumerate(values)])
+        self.enc.fit(values)
 
     def transform(self, values):
-        return self.enc.transform([(val.value, idx) for idx, val in enumerate(values)])
+        return self.enc.transform(values)
 
     def fit_transform(self, values):
         self.fit(values)
