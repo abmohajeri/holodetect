@@ -4,6 +4,13 @@ from utils.helpers import diff_dfs, not_equal
 from sklearn.metrics import classification_report, confusion_matrix
 import numpy as np
 
+errors_type = {
+    'COR': 'CORRECT',
+    'PAT': 'PATTERN',
+    'OUT': 'OUTLIER',
+    'RUL': 'RULE'
+}
+
 
 # Output from - to - id - col - score (probability) - result (true or false)
 class Report:

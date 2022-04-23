@@ -16,3 +16,4 @@ sklearn~=0.0
 fasttext
 sqldf
 captum
+dotenv

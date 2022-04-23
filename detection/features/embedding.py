@@ -1,3 +1,4 @@
+import os
 from typing import List
 import torch
 from torchtext.data.utils import get_tokenizer
@@ -5,18 +6,16 @@ from torchnlp.encoders.text.text_encoder import stack_and_pad_tensors
 from detection.features import BaseExtractor
 from utils import RowBasedValue
 import fasttext
+from dotenv import load_dotenv
 
 # Use This if You Want Wikipedia Corpora
 # import fasttext.util
 # fasttext.util.download_model('en', if_exists='ignore')
 # fasttext = fasttext.load_model('cc.en.300.bin')
 
-# fasttext = fasttext.train_unsupervised('data/datasets/holodetect/hospital/raw/hospital.csv', "cbow", lr=0.5, dim=300)
-# fasttext = fasttext.train_unsupervised('data/datasets/holodetect/soccer/raw/soccer.csv', "cbow", lr=0.5, dim=300)
-# fasttext = fasttext.train_unsupervised('data/datasets/other/toy/raw/toy.csv', "cbow", lr=0.5, dim=300)
-fasttext = fasttext.train_unsupervised('data/datasets/other/toy_edited/raw/toy.csv', "cbow", lr=0.5, dim=300)
-# fasttext = fasttext.train_unsupervised('data/datasets/other/restaurant/raw/restaurant.csv', "cbow", lr=0.5, dim=300)
-# fasttext = fasttext.train_unsupervised('data/datasets/other/university/raw/university.csv', "cbow", lr=0.5, dim=300)
+load_dotenv()
+fasttext_data_path = os.getenv('fasttext_data_path')
+fasttext = fasttext.train_unsupervised(fasttext_data_path, "cbow", lr=0.5, dim=300)
 
 tokenizer = get_tokenizer("spacy")
 
