@@ -1,0 +1,1 @@
+t1&t2&EQ(t1.country,t2.country)&EQ(t1.occupation,t2.occupation)&EQ(t1.education,t2.education)&IQ(t1.income,t2.income)

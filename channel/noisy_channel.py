@@ -3,14 +3,16 @@ import random
 from collections import Counter
 from difflib import SequenceMatcher
 from typing import List, Tuple
+
 import regex as re
+from loguru import logger
+
 from utils import RowBasedValue
 from utils.helpers import xngrams
-from loguru import logger
 
 
 def wskeep_tokenize(s):
-    return re.split(r"([\W\p{P}])", s) # \W Equivalent to [^A-Za-z0-9_] & \p{P} is "Any punctuation character"
+    return re.split(r"([\W\p{P}])", s)  # \W Equivalent to [^A-Za-z0-9_] & \p{P} is "Any punctuation character"
 
 
 class CharTransform:
@@ -215,9 +217,26 @@ class NCGenerator:
                 yield rule.after_str
 
     def _get_noisy_chars(self):
-        noisy_chars = [rule.after_str for rule in self.char_channel.rule2prob.keys()] if self.char_channel.rule2prob is not None else []
-        noisy_word = [rule.after_str for rule in self.word_channel.rule2prob.keys()] if self.word_channel.rule2prob is not None else []
+        noisy_chars = [rule.after_str for rule in
+                       self.char_channel.rule2prob.keys()] if self.char_channel.rule2prob is not None else []
+        noisy_word = [rule.after_str for rule in
+                      self.word_channel.rule2prob.keys()] if self.word_channel.rule2prob is not None else []
         return noisy_chars + noisy_word
+
+    def _get_noises(self):
+        noises = []
+        for (key, value) in self.char_channel.rule2prob.items():
+            noises.append({'raw': key.after_str, 'clean': key.before_str, 'distribution': value})
+        for (key, value) in self.word_channel.rule2prob.items():
+            noises.append({'raw': key.after_str, 'clean': key.before_str, 'distribution': value})
+        return noises
+
+    def find_noise(self, value):
+        noises = []
+        for noise in self._get_noises():
+            if noise['raw'] in value:
+                noises.append(noise)
+        return sorted(noises, key=lambda d: d['distribution'], reverse=True)
 
     def _filter_normal_values(self, channel, values: List[RowBasedValue]):
         suspicious_chars = self._get_suspicious_chars(channel)

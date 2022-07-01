@@ -1,19 +1,22 @@
 import copy
+
 import torch.nn.functional as F
+from captum.attr import IntegratedGradients, LRP, FeatureAblation
+from captum.attr._utils.lrp_rules import EpsilonRule
+from pytorch_lightning import Trainer
+from sklearn.preprocessing import MinMaxScaler
+from torch import nn, optim
+from torch.utils.data.dataset import TensorDataset
+
+from channel.noisy_channel import NCGenerator
 from detection.base import *
 from detection.features import StatsExtractor, CharWordExtractor, AlphaFeatureExtractor, OneHotExtractor
 from utils import LabelEncoderRobust
-from utils.dcparser import Parser, ViolationDetector
+from utils.dcparser import ViolationDetector
+from utils.helpers import *
 from utils.highway import Highway
 from utils.row import RowBasedValue
-from channel.noisy_channel import NCGenerator
-from utils.helpers import *
-from pytorch_lightning import Trainer
-from torch import nn, optim
-from torch.utils.data.dataset import TensorDataset
-from captum.attr import IntegratedGradients, LRP, FeatureAblation
-from captum.attr._utils.lrp_rules import EpsilonRule
-from sklearn.preprocessing import MinMaxScaler
+
 torch.cuda.empty_cache()
 
 
@@ -181,96 +184,36 @@ class HoloDetector(BaseDetector):
         # Let's start with the interpretation
         y_hat = [1 if x >= 0.5 else 0 for x in predictions]
 
-        to_be_df = []
-        # IG for Instance
-        # xai = IntegratedGradients(self.model.fcs)
-        # importance = xai.attribute(individuals).detach().cpu().numpy()
-        # print("Importance:", pd.DataFrame(np.array(importance)))
-        # print("Probability of Error:", self.model.forward(individuals))
+        # Explanations
+        column = data[0].column
 
         # IG
-        xai = IntegratedGradients(self.model.fcs)
-        importances = xai.attribute(individuals).detach().cpu().numpy()
-        for i in range(len(importances)):
-            importance = importances[i]
-            for base_type, vals in [
-                ("base", importance)
-            ]:
-                for j, name in enumerate(["char_embedding",
-                                          "word_embedding",
-                                          "frequencies",
-                                          "tuple_embedding",
-                                          "co_val_stats",
-                                          "dc_features",
-                                          "onehot_features",
-                                          "neighbor_embedding"]):
-                    to_be_df.append({
-                        "base-type": base_type,
-                        "feature": name,
-                        "value": vals[j],
-                    })
-        df = pd.DataFrame(to_be_df)
-        df.to_csv("xai/{}_xai_ig.csv".format(data[0].column))
-
         to_be_df = []
-        # LRP for Instance
-        # self.model.fcs[2].rule = EpsilonRule()
-        # xai = LRP(self.model.fcs)
-        # importance = xai.attribute(individuals).detach().cpu().numpy()
-        # print("Importance:", pd.DataFrame(np.array(importance)))
-        # print("Probability of Error:", self.model.forward(individuals))
+        ig_xai = IntegratedGradients(self.model.fcs)
+        ig_importances = ig_xai.attribute(individuals).detach().cpu().numpy()
 
         # LRP
         self.model.fcs[2].rule = EpsilonRule()
-        xai = LRP(self.model.fcs)
-        importances = xai.attribute(individuals).detach().cpu().numpy()
-        for i in range(len(importances)):
-            importance = importances[i]
-            for base_type, vals in [
-                ("base", importance)
-            ]:
-                for j, name in enumerate(["char_embedding",
-                                          "word_embedding",
-                                          "frequencies",
-                                          "tuple_embedding",
-                                          "co_val_stats",
-                                          "dc_features",
-                                          "onehot_features",
-                                          "neighbor_embedding"]):
-                    to_be_df.append({
-                        "base-type": base_type,
-                        "feature": name,
-                        "value": vals[j],
-                    })
-        df = pd.DataFrame(to_be_df)
-        df.to_csv("xai/{}_xai_lrp.csv".format(data[0].column))
+        lrp_xai = LRP(self.model.fcs)
+        lrp_importances = lrp_xai.attribute(individuals).detach().cpu().numpy()
 
-        to_be_df = []
-        # Feature Ablation for Instance
-        # feature_mask = \
-        #     [0, 1, 2, 2, 2, 2, 3] + \
-        #     [4 for x in range(len(feature_tensors_with_labels[4][0]))] + \
-        #     [5] + \
-        #     [6 for x in range(len(feature_tensors_with_labels[6][0]))] + \
-        #     [7]
-        # xai = FeatureAblation(self.model.fcs)
-        # importance = xai.attribute(individuals, feature_mask=torch.tensor(feature_mask)).detach().cpu().numpy()
-        # print("Importance:", pd.DataFrame(np.array(importance)))
-        # print("Probability of Error:", self.model.forward(individuals))
-
-        # FeatureAblation
+        # Ablation
         feature_mask = \
             [0, 1, 2, 2, 2, 2, 3] + \
             [4 for x in range(len(feature_tensors_with_labels[4][0]))] + \
             [5] + \
             [6 for x in range(len(feature_tensors_with_labels[6][0]))] + \
             [7]
-        xai = FeatureAblation(self.model.fcs)
-        importances = xai.attribute(individuals, feature_mask=torch.tensor(feature_mask)).detach().cpu().numpy()
-        for i in range(len(importances)):
-            importance = importances[i]
-            for base_type, vals in [
-                ("base", importance)
+        ablation_xai = FeatureAblation(self.model.fcs)
+        ablation_importances = ablation_xai.attribute(individuals,
+                                                      feature_mask=torch.tensor(feature_mask)).detach().cpu().numpy()
+
+        for i in range(len(ig_importances)):
+            ig_importance = ig_importances[i]
+            lrp_importance = lrp_importances[i]
+            ablation_importance = ablation_importances[i]
+            for type, values in [
+                ("ig", ig_importance), ("lrp", lrp_importance), ("ablation", ablation_importance)
             ]:
                 for j, name in enumerate(["char_embedding",
                                           "word_embedding",
@@ -281,12 +224,31 @@ class HoloDetector(BaseDetector):
                                           "onehot_features",
                                           "neighbor_embedding"]):
                     to_be_df.append({
-                        "base-type": base_type,
+                        "type": type,
                         "feature": name,
-                        "value": vals[j],
+                        "value": values[j],
                     })
         df = pd.DataFrame(to_be_df)
-        df.to_csv("xai/{}_xai_ablation.csv".format(data[0].column))
+        df.to_csv("xai/{}_xai.csv".format(column))
+
+        df = pd.DataFrame([x.row.values() for x in row_values], columns=data[0].row.keys())
+        df['u_id'] = df.groupby(df.columns.tolist(), sort=False).ngroup() + 1  # For DCs
+        dc_errors = ViolationDetector(df, constraints).detect_noisy_cells()
+        dc_errors = dc_errors[[True if column == x['column'] else False for i, x in dc_errors.iterrows()]]
+        if len(dc_errors):
+            dc_errors_count = dc_errors.groupby('u_id').agg({'attribute': '-'.join}).reset_index()
+            dc_errors_count = df[['u_id']].astype(int).merge(dc_errors_count, how='left').fillna(0)
+            dc_errors_count[['attribute']].to_csv("xai/{}_dc.csv".format(column), index=False)
+        else:
+            dc_errors_count = df[['u_id']].astype(int)
+            dc_errors_count['attribute'] = 0
+            dc_errors_count[['attribute']].to_csv("xai/{}_dc.csv".format(column), index=False)
+
+        noises = []
+        for value in row_values:
+            noises.append({value.value: self.generator.find_noise(value.value)})
+        np.save("xai/{}_noises.npy".format(column), noises)
+
         return predictions
 
     def detect(self, dataset: pd.DataFrame, training_data: pd.DataFrame):
