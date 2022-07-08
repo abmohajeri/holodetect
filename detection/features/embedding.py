@@ -1,12 +1,14 @@
 import os
 from typing import List
+
+import fasttext
 import torch
-from torchtext.data.utils import get_tokenizer
+from dotenv import load_dotenv
 from torchnlp.encoders.text.text_encoder import stack_and_pad_tensors
+from torchtext.data.utils import get_tokenizer
+
 from detection.features import BaseExtractor
 from utils import RowBasedValue
-import fasttext
-from dotenv import load_dotenv
 
 # Use This if You Want Wikipedia Corpora
 # import fasttext.util
@@ -69,9 +71,9 @@ class AlphaFeatureExtractor(BaseExtractor):
     # Dataset Level (Tuple representation)
     def extract_neighbor_embedding(self, data: List[RowBasedValue]):
         return torch.tensor([
-                [fasttext.get_nearest_neighbors(str_value, k=1)[0][0]]
-                if str_value
-                else torch.zeros(1, 300)
+            [fasttext.get_nearest_neighbors(str_value, k=1)[0][0]]
+            if str_value
+            else [0]
                 for str_value in data
             ])
 
