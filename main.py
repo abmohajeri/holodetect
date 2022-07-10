@@ -16,7 +16,7 @@ config_path = os.getenv('config_path')
 hparams = Namespace(**yaml.full_load(open(config_path)))
 detector = HoloDetector(hparams)
 dataset = read_dataset(data_path)  # data_path should contain raw & cleaned directories
-training_data = read_dataset(data_path, [0, 500])
+training_data = read_dataset(data_path, [0, 100])
 
 constraint = True  # Change This to True if Constraints Provided
 constraints = Parser().load_denial_constraints(training_data['raw'].columns, data_path + '/constraints.txt') if constraint else None
