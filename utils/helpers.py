@@ -9,24 +9,49 @@ from pathlib import Path
 import yaml
 import ftfy
 from nltk import ngrams
+from utils.eds_util import read_csv_eds
 
 
 # Read datasets from given path (don't forget that each directory should contain raw & cleaned)
 def read_dataset(data_path, data_range=None):
+    sample_size = max(data_range) if data_range is not None else None
     data_range = [None, None] if data_range is None else data_range
     data_path = Path(data_path)
     raw_path = data_path / "raw"
     cleaned_path = data_path / "cleaned"
     name = list(raw_path.iterdir())[0].name
-    raw = pd.read_csv(raw_path / name, keep_default_na=False, dtype=str, skiprows=data_range[0], nrows=data_range[1]) \
+    
+    # Determine the total number of rows in the file
+    total_rows = sum(1 for _ in open(raw_path / name)) - 1  # Subtract 1 for the header
+
+    # Randomly select 'sample_size' number of rows, avoiding the header row
+    if sample_size is not None and total_rows > sample_size:
+        skip_rows = np.random.choice(range(1, total_rows + 1), size=(total_rows - sample_size), replace=False)
+    else:
+        skip_rows = None
+
+    raw = pd.read_csv(raw_path / name, keep_default_na=False, dtype=str, skiprows=skip_rows) \
         .applymap(lambda x: ftfy.fix_text(x))
-    cleaned = pd.read_csv(cleaned_path / name, keep_default_na=False, dtype=str, skiprows=data_range[0], nrows=data_range[1]) \
+    cleaned = pd.read_csv(cleaned_path / name, keep_default_na=False, dtype=str, skiprows=skip_rows) \
         .applymap(lambda x: ftfy.fix_text(x))
+    
+    dirty_df = read_csv_eds(
+            raw_path / name, low_memory=False, data_type='str', skip_rows=skip_rows
+        )
+    clean_df = read_csv_eds(
+        cleaned_path / name, low_memory=False, data_type='str', skip_rows=skip_rows
+    )
+    dirty_df.columns = clean_df.columns
+    diff = dirty_df.compare(clean_df, keep_shape=True)
+    self_diff = diff.xs('self', axis=1, level=1)
+    other_diff = diff.xs('other', axis=1, level=1)
+    # Custom comparison. True (or 1) only when values are different and not both NaN.
+    label_df = ((self_diff != other_diff) & ~(self_diff.isna() & other_diff.isna())).astype(int)
     return {
         'name': name,
         'raw': raw,
         'clean': cleaned,
-        'groundtruth': raw == cleaned
+        'groundtruth': label_df
     }
 
 

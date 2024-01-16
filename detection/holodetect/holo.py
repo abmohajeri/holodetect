@@ -1,4 +1,5 @@
 import copy
+import os
 
 import torch.nn.functional as F
 from captum.attr import IntegratedGradients, LRP, FeatureAblation
@@ -229,11 +230,13 @@ class HoloDetector(BaseDetector):
                         "value": values[j],
                     })
         df = pd.DataFrame(to_be_df)
+        if not os.path.exists("xai"):
+            os.mkdir("xai")
         df.to_csv("xai/{}_xai.csv".format(column))
 
         df = pd.DataFrame([x.row.values() for x in row_values], columns=data[0].row.keys())
         df['u_id'] = df.groupby(df.columns.tolist(), sort=False).ngroup() + 1  # For DCs
-        dc_errors = ViolationDetector(df, constraints).detect_noisy_cells()
+        dc_errors = ViolationDetector(df, constraints).detect_noisy_cells() if constraints is not None else pd.DataFrame()
         dc_errors = dc_errors[[True if column == x['column'] else False for i, x in dc_errors.iterrows()]]
         if len(dc_errors):
             dc_errors_count = dc_errors.groupby('u_id').agg({'attribute': '-'.join}).reset_index()
